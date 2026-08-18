@@ -1,1 +1,1 @@
-Address book module for MEAE - official use only, because it calls on official govt graphic design. 
+Address book module for MEAE Grists - official use only, because it calls on official govt graphic design. 
