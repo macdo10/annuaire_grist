@@ -233,24 +233,30 @@
   .fr-header__brand::after{ display:none; }
   .fr-header__logo{ padding:.75rem .75rem .75rem 0; }
   .fr-header__service::before{ content:none; }
-  .fr-header__service{ margin-left:1.5rem; padding-top:.9rem; }
+  .fr-header__service{
+    margin-left:1.5rem; padding-top:.9rem;
+    display:flex; align-items:baseline; gap:8px;
+  }
   .fr-header__service-title{
     font-size:1.75rem; line-height:1.2; font-weight:700; color:#161616;
     white-space:nowrap;
   }
-
-  /* Devise "Liberté Égalité Fraternité" — affichée en clair sous l'intitulé du
-     ministère, comme sur diplomatie.gouv.fr (le mot-symbole ::after du DSFR,
-     lui, reste minuscule et sert plutôt de filigrane). */
-  .fr-logo-devise{
-    font-family:"Spectral","Georgia","Times New Roman",serif;
-    font-style:italic;
-    font-size:11px;
-    line-height:1.3;
-    font-weight:400;
-    color:#161616;
-    margin:2px 0 0;
+  .edit-title-btn{
+    border:none; background:none; cursor:pointer; color:var(--grey-muted);
+    font-size:15px; padding:2px 4px; border-radius:4px; opacity:.55;
+    line-height:1;
   }
+  .edit-title-btn:hover{ opacity:1; background:var(--grey-bg-alt); color:var(--blue-france); }
+  .fr-header__service-title-input{
+    font-size:1.75rem; line-height:1.2; font-weight:700; color:#161616;
+    font-family:inherit; border:none; border-bottom:2px solid var(--blue-france);
+    background:var(--blue-france-975); padding:0 2px; outline:none;
+    min-width:260px;
+  }
+
+  /* Note : la devise "Liberté Égalité Fraternité" est déjà dessinée par le
+     mot-symbole ::after officiel du DSFR sur .fr-logo (visible dans un vrai
+     navigateur) — inutile de l'ajouter en texte, ça la dupliquerait. */
 
 
   /* ---------- Composant officiel : Barre de recherche (fr-search-bar) ----------
@@ -501,11 +507,11 @@
           <div class="fr-header__brand-top">
             <div class="fr-header__logo">
               <p class="fr-logo">Ministère<br>de l'Europe<br>et des Affaires<br>étrangères</p>
-            /*  <p class="fr-logo-devise">Liberté<br>Égalité<br>Fraternité</p> */
             </div>
           </div>
           <div class="fr-header__service">
-            <p class="fr-header__service-title">Annuaire du réseau PresseCom</p>
+            <p class="fr-header__service-title" id="serviceTitle">Annuaire du réseau PresseCom</p>
+            <button type="button" id="editTitleBtn" class="edit-title-btn" title="Modifier le titre" aria-label="Modifier le titre">✎</button>
           </div>
         </div>
         <div class="fr-header__tools">
@@ -604,6 +610,61 @@ grist.onRecords(function(records) {
   buildCombo('pays');
   buildCombo('poste');
   render();
+});
+
+// ---------------------------------------------------------------------------
+// Titre du service — configurable pour faciliter la réutilisation du widget
+// sur d'autres tables/documents sans toucher au code.
+// Priorité : option Grist enregistrée > paramètre d'URL ?title= > valeur par défaut.
+// L'option Grist est éditable directement dans le widget (icône crayon) et
+// persiste par instance de widget (sauvegardée dans le document).
+// ---------------------------------------------------------------------------
+const DEFAULT_TITLE = "Annuaire du réseau PresseCom";
+const titleEl = document.getElementById('serviceTitle');
+const editBtn = document.getElementById('editTitleBtn');
+
+function paramTitle(){
+  try {
+    const p = new URLSearchParams(window.location.search).get('title');
+    return p && p.trim() ? p.trim() : null;
+  } catch(e) { return null; }
+}
+
+function applyTitle(t){
+  titleEl.textContent = t || DEFAULT_TITLE;
+}
+
+// Valeur initiale : URL, sinon défaut, en attendant la réponse de Grist
+applyTitle(paramTitle());
+
+grist.onOptions(function(options){
+  const stored = options && options.title;
+  applyTitle(stored || paramTitle());
+});
+
+editBtn.addEventListener('click', function(){
+  const current = titleEl.textContent;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = current;
+  input.className = 'fr-header__service-title-input';
+  titleEl.replaceWith(input);
+  editBtn.style.display = 'none';
+  input.focus();
+  input.select();
+
+  function commit(){
+    const val = input.value.trim() || DEFAULT_TITLE;
+    applyTitle(val);
+    input.replaceWith(titleEl);
+    editBtn.style.display = '';
+    grist.setOption('title', val);
+  }
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', function(e){
+    if (e.key === 'Enter') input.blur();
+    if (e.key === 'Escape'){ input.value = current; input.blur(); }
+  });
 });
 
 function norm(v){ return (v===null||v===undefined) ? "" : String(v); }
