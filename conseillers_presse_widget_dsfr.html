@@ -429,9 +429,6 @@
   .combo-list div:hover{background:var(--blue-france-975);}
   .combo-list div.sel{font-weight:700; color:var(--blue-france); background:var(--blue-france-975);}
 
-  .toggle3{display:flex; gap:6px; flex-wrap:wrap;}
-  .toggle3 .chip{min-width:52px; text-align:center;}
-
   .clearbtn{
     display:inline-flex; align-items:center; gap:4px;
     margin-top:2px; font-size:12.5px; color:var(--blue-france);
@@ -471,6 +468,7 @@
   .badge.g7{background:#fff; color:var(--blue-france);}
   .badge.g20{background:var(--red-marianne); color:#fff;}
   .badge.ue{background:#FFCC00; color:#161616;}
+  .badge.autre{background:var(--grey-bg-alt); color:var(--grey-text); box-shadow:inset 0 0 0 1px var(--grey-border);}
 
   table.people{width:100%; border-collapse:collapse;}
   table.people td, table.people th{
@@ -532,11 +530,7 @@
 
     <div class="filter-block">
       <h3>Groupements</h3>
-      <div class="toggle3" id="groupToggles">
-        <span class="chip" data-group="G7">G7</span>
-        <span class="chip" data-group="G20">G20</span>
-        <span class="chip" data-group="UE">UE</span>
-      </div>
+      <div class="chiprow" id="groupToggles"></div>
     </div>
 
     <div class="filter-block">
@@ -577,7 +571,7 @@
 grist.ready({
   requiredAccess: 'read table',
   columns: [
-    { name: "Poste",       title: "Poste (intitulé du poste)" },
+    { name: "Poste",       title: "Poste diplomatique (ex : Ambassade de France à Berlin) — pas la fonction" },
     { name: "Pays",        title: "Pays" },
     { name: "Zone",        title: "Zone" },
     { name: "Ville",       title: "Ville", optional: true },
@@ -589,9 +583,7 @@ grist.ready({
     { name: "TelPortable", title: "Tél PORTABLE", optional: true },
     { name: "TelWhatsapp", title: "Tél WHATSAPP", optional: true },
     { name: "Mail",        title: "mail", optional: true },
-    { name: "G7",          title: "G7", optional: true },
-    { name: "G20",         title: "G20", optional: true },
-    { name: "UE",          title: "UE", optional: true },
+    { name: "Groupements", title: "Groupements (G7, G20, UE…)", optional: true },
   ]
 });
 
@@ -601,11 +593,12 @@ let state = {
   zone: null,
   pays: null,
   poste: null,
-  groups: { G7:false, G20:false, UE:false }
+  groups: new Set()   // groupements sélectionnés (multi-sélection, ET logique)
 };
 
 grist.onRecords(function(records) {
   RAW = records.map(r => grist.mapColumnNames(r)).filter(Boolean);
+  buildGroupChips();
   buildZoneChips();
   buildCombo('pays');
   buildCombo('poste');
@@ -668,7 +661,22 @@ editBtn.addEventListener('click', function(){
 });
 
 function norm(v){ return (v===null||v===undefined) ? "" : String(v); }
-function truthy(v){ return v === true || v === "true" || v === 1; }
+
+// Les colonnes "Choice List" de Grist arrivent sous la forme d'un tableau
+// ["L", "G7", "UE"] (le "L" est un marqueur interne de type liste) — on le
+// retire pour ne garder que les valeurs choisies. On gère aussi le cas d'une
+// simple chaîne (ex: "G7, UE") par sécurité.
+function groupList(r){
+  const v = r.Groupements;
+  if (!v) return [];
+  if (Array.isArray(v)){
+    return (v[0] === 'L' ? v.slice(1) : v).map(String).filter(Boolean);
+  }
+  if (typeof v === 'string'){
+    return v.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return [];
+}
 
 function fieldset(list, key){
   const s = new Set();
@@ -676,13 +684,17 @@ function fieldset(list, key){
   return Array.from(s).sort((a,b)=>a.localeCompare(b, 'fr'));
 }
 
+function groupfieldset(list){
+  const s = new Set();
+  list.forEach(r => groupList(r).forEach(g => s.add(g)));
+  return Array.from(s).sort((a,b)=>a.localeCompare(b, 'fr'));
+}
+
 // -------------------- filter application --------------------
 function applyFilters(){
   let rows = RAW;
 
-  if (state.groups.G7)  rows = rows.filter(r => truthy(r.G7));
-  if (state.groups.G20) rows = rows.filter(r => truthy(r.G20));
-  if (state.groups.UE)  rows = rows.filter(r => truthy(r.UE));
+  state.groups.forEach(g => { rows = rows.filter(r => groupList(r).includes(g)); });
 
   if (state.zone) rows = rows.filter(r => norm(r.Zone) === state.zone);
   if (state.pays) rows = rows.filter(r => norm(r.Pays) === state.pays);
@@ -696,6 +708,25 @@ function applyFilters(){
     });
   }
   return rows;
+}
+
+// -------------------- filter UI builders --------------------
+function buildGroupChips(){
+  const options = groupfieldset(RAW);
+  const wrap = document.getElementById('groupToggles');
+  wrap.innerHTML = "";
+  options.forEach(g => {
+    const count = RAW.filter(r => groupList(r).includes(g)).length;
+    const chip = document.createElement('span');
+    chip.className = 'chip' + (state.groups.has(g) ? ' active' : '');
+    chip.innerHTML = g + `<span class="n">${count}</span>`;
+    chip.onclick = () => {
+      if (state.groups.has(g)) state.groups.delete(g); else state.groups.add(g);
+      buildGroupChips();
+      render();
+    };
+    wrap.appendChild(chip);
+  });
 }
 
 // -------------------- filter UI builders --------------------
@@ -774,26 +805,17 @@ function setCombo(kind, value){
   render();
 }
 
-document.querySelectorAll('#groupToggles .chip').forEach(chip => {
-  chip.onclick = () => {
-    const g = chip.dataset.group;
-    state.groups[g] = !state.groups[g];
-    chip.classList.toggle('active', state.groups[g]);
-    render();
-  };
-});
-
 document.getElementById('searchInput').addEventListener('input', (e) => {
   state.search = e.target.value;
   render();
 });
 
 document.getElementById('clearAll').onclick = () => {
-  state = { search:"", zone:null, pays:null, poste:null, groups:{G7:false,G20:false,UE:false} };
+  state = { search:"", zone:null, pays:null, poste:null, groups:new Set() };
   document.getElementById('searchInput').value = "";
   document.getElementById('paysInput').value = "";
   document.getElementById('posteInput').value = "";
-  document.querySelectorAll('#groupToggles .chip').forEach(c => c.classList.remove('active'));
+  buildGroupChips();
   buildZoneChips();
   buildCombo('pays');
   buildCombo('poste');
@@ -826,15 +848,20 @@ function render(){
     groups.get(key).push(r);
   });
 
-  const sortedKeys = Array.from(groups.keys()).sort((a,b)=>a.localeCompare(b,'fr'));
+  const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
+    const pa = norm(groups.get(a)[0].Pays), pb = norm(groups.get(b)[0].Pays);
+    const cmpPays = pa.localeCompare(pb, 'fr');
+    if (cmpPays !== 0) return cmpPays;
+    return a.localeCompare(b, 'fr'); // a/b sont déjà le nom du poste (Poste)
+  });
 
   resultsEl.innerHTML = sortedKeys.map(key => {
     const people = groups.get(key);
     const first = people[0];
-    const badges = [];
-    if (truthy(first.G7)) badges.push('<span class="badge g7">G7</span>');
-    if (truthy(first.G20)) badges.push('<span class="badge g20">G20</span>');
-    if (truthy(first.UE)) badges.push('<span class="badge ue">UE</span>');
+    const knownBadgeClass = { G7: 'g7', G20: 'g20', UE: 'ue' };
+    const badges = groupList(first).map(g =>
+      `<span class="badge ${knownBadgeClass[g] || 'autre'}">${norm(g)}</span>`
+    );
 
     const sub = [first.Ville, first.TypePoste].filter(v => norm(v).trim()).join(" · ");
 
