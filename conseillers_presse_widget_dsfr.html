@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#000091">
-<title>Annuaire</title>
+<title>Conseillers de presse — Annuaire</title>
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <style>
   /*
@@ -660,7 +660,16 @@ editBtn.addEventListener('click', function(){
   });
 });
 
-function norm(v){ return (v===null||v===undefined) ? "" : String(v); }
+function norm(v){
+  if (v === null || v === undefined) return "";
+  // Les erreurs de formule Grist arrivent soit comme objet {error: "..."},
+  // soit déjà comme texte "#AttributeError", "#REF!", etc. — on les masque
+  // plutôt que d'afficher l'erreur brute à l'utilisateur final.
+  if (typeof v === 'object' && !Array.isArray(v) && 'error' in v) return "";
+  const s = String(v);
+  if (/^#\w/.test(s)) return "";
+  return s;
+}
 
 // Les colonnes "Choice List" de Grist arrivent sous la forme d'un tableau
 // ["L", "G7", "UE"] (le "L" est un marqueur interne de type liste) — on le
