@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#000091">
-<title>Conseillers de presse — Annuaire</title>
+<title>Annuaire</title>
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <style>
   /*
@@ -508,7 +508,7 @@
             </div>
           </div>
           <div class="fr-header__service">
-            <p class="fr-header__service-title" id="serviceTitle">Annuaire du réseau PresseCom</p>
+            <p class="fr-header__service-title" id="serviceTitle">Annuaire</p>
             <button type="button" id="editTitleBtn" class="edit-title-btn" title="Modifier le titre" aria-label="Modifier le titre">✎</button>
           </div>
         </div>
@@ -571,7 +571,7 @@
 grist.ready({
   requiredAccess: 'read table',
   columns: [
-    { name: "Poste",       title: "Poste diplomatique (ex : Ambassade de France à Berlin) — pas la fonction" },
+    { name: "Poste",       title: "Poste diplomatique" },
     { name: "Pays",        title: "Pays" },
     { name: "Zone",        title: "Zone" },
     { name: "Ville",       title: "Ville", optional: true },
@@ -612,7 +612,7 @@ grist.onRecords(function(records) {
 // L'option Grist est éditable directement dans le widget (icône crayon) et
 // persiste par instance de widget (sauvegardée dans le document).
 // ---------------------------------------------------------------------------
-const DEFAULT_TITLE = "Annuaire du réseau PresseCom";
+const DEFAULT_TITLE = "Annuaire";
 const titleEl = document.getElementById('serviceTitle');
 const editBtn = document.getElementById('editTitleBtn');
 
