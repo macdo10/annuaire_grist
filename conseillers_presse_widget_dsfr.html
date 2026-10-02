@@ -437,6 +437,43 @@
   }
   .clearbtn:hover{color:var(--blue-france-hover);}
 
+  /* ---------- Indicateur "postes sans contact" (palette d'alerte DSFR) ---------- */
+  .no-contact-wrap{ margin:8px 0 4px; }
+  .no-contact-pill{
+    display:flex; align-items:center; gap:6px; width:100%;
+    font-family:inherit; font-size:12px; font-weight:600;
+    color:#B34000; background:#FEF3E3; border:1px solid #FFC25A;
+    border-radius:6px; padding:6px 9px; cursor:pointer; text-align:left;
+  }
+  .no-contact-pill:hover{ background:#FEE9CC; }
+  .no-contact-icon{ font-size:13px; line-height:1; }
+  .no-contact-list{
+    margin-top:4px; max-height:180px; overflow-y:auto;
+    border:1px solid var(--grey-border); border-radius:6px; background:#fff;
+    font-size:12px;
+  }
+  .no-contact-list div{ padding:5px 9px; border-bottom:1px solid var(--grey-bg-alt); }
+  .no-contact-list div:last-child{ border-bottom:none; }
+
+  /* ---------- Réglages (table/colonne des postes) ---------- */
+  .settings-block{ margin-top:10px; }
+  .settings-panel{
+    margin-top:6px; padding:10px; border:1px solid var(--grey-border);
+    border-radius:6px; background:var(--grey-bg-alt);
+    display:flex; flex-direction:column; gap:4px;
+  }
+  .settings-label{ font-size:11px; color:var(--grey-muted); font-weight:600; }
+  .settings-input{
+    font-size:12.5px; padding:5px 7px; border:1px solid var(--grey-border);
+    border-radius:5px; font-family:inherit; margin-bottom:4px;
+  }
+  .settings-save-btn{
+    align-self:flex-start; font-size:12px; font-weight:600; color:#fff;
+    background:var(--blue-france); border:none; border-radius:5px;
+    padding:5px 11px; cursor:pointer; font-family:inherit; margin-top:2px;
+  }
+  .settings-save-btn:hover{ background:var(--blue-france-hover); }
+
   /* ---------- Résultats ---------- */
   .results{
     flex:1;
@@ -528,6 +565,14 @@
   <aside class="filters">
     <div class="count" id="countLabel">–</div>
 
+    <div id="noContactWrap" class="no-contact-wrap" style="display:none;">
+      <button type="button" id="noContactBtn" class="no-contact-pill">
+        <span class="no-contact-icon">⚠</span>
+        <span id="noContactCount">0</span>&nbsp;poste(s) sans contact
+      </button>
+      <div id="noContactList" class="no-contact-list" style="display:none;"></div>
+    </div>
+
     <div class="filter-block">
       <h3>Groupements</h3>
       <div class="chiprow" id="groupToggles"></div>
@@ -555,6 +600,17 @@
     </div>
 
     <button class="clearbtn" id="clearAll">Réinitialiser les filtres</button>
+
+    <div class="settings-block">
+      <button type="button" class="clearbtn" id="openSettingsBtn">⚙ Réglages "postes sans contact"</button>
+      <div id="settingsPanel" class="settings-panel" style="display:none;">
+        <label class="settings-label" for="settingsPostesTable">Table des postes</label>
+        <input type="text" id="settingsPostesTable" class="settings-input" placeholder="Postes">
+        <label class="settings-label" for="settingsPostesCol">Colonne libellé du poste</label>
+        <input type="text" id="settingsPostesCol" class="settings-input" placeholder="Poste">
+        <button type="button" id="settingsSaveBtn" class="settings-save-btn">Enregistrer</button>
+      </div>
+    </div>
   </aside>
 
   <main class="results" id="results">
@@ -569,7 +625,13 @@
 // keeps working even if columns are renamed.
 // ---------------------------------------------------------------------------
 grist.ready({
-  requiredAccess: 'read table',
+  // 'full' est nécessaire ici (et pas seulement 'read table') car l'indicateur
+  // "postes sans contact" doit lire la table Postes dans son intégralité via
+  // grist.docApi.fetchTable — un poste sans aucun contact n'apparaît jamais
+  // dans les enregistrements Conseillers reçus par le widget, donc il n'y a
+  // aucun autre moyen de savoir qu'il existe. Grist redemandera l'autorisation
+  // à l'utilisateur au premier chargement après cette mise à jour.
+  requiredAccess: 'full',
   columns: [
     { name: "Poste",       title: "Poste diplomatique" },
     { name: "Pays",        title: "Pays" },
@@ -603,6 +665,7 @@ grist.onRecords(function(records) {
   buildCombo('pays');
   buildCombo('poste');
   render();
+  refreshPostesSansContact();
 });
 
 // ---------------------------------------------------------------------------
@@ -633,6 +696,12 @@ applyTitle(paramTitle());
 grist.onOptions(function(options){
   const stored = options && options.title;
   applyTitle(stored || paramTitle());
+
+  postesTable = (options && options.postesTable) || DEFAULT_POSTES_TABLE;
+  postesCol = (options && options.postesCol) || DEFAULT_POSTES_COL;
+  settingsTableInput.value = postesTable;
+  settingsColInput.value = postesCol;
+  refreshPostesSansContact();
 });
 
 editBtn.addEventListener('click', function(){
@@ -658,6 +727,74 @@ editBtn.addEventListener('click', function(){
     if (e.key === 'Enter') input.blur();
     if (e.key === 'Escape'){ input.value = current; input.blur(); }
   });
+});
+
+// ---------------------------------------------------------------------------
+// Indicateur "postes sans contact" — un poste sans aucun conseiller n'apparaît
+// jamais dans les enregistrements reçus par le widget (qui ne voit que les
+// contacts), donc la seule façon de le détecter est de lire la table des
+// postes dans son intégralité via grist.docApi.fetchTable (accès 'full').
+// Le nom de cette table et la colonne contenant le libellé du poste (celui
+// qui doit correspondre au texte "Poste" des contacts) sont configurables
+// via le petit panneau "Réglages", pour rester réutilisable sur d'autres
+// documents sans toucher au code.
+// ---------------------------------------------------------------------------
+const DEFAULT_POSTES_TABLE = "Postes";
+const DEFAULT_POSTES_COL = "Poste";
+let postesTable = DEFAULT_POSTES_TABLE;
+let postesCol = DEFAULT_POSTES_COL;
+let missingPostes = [];
+
+const noContactWrapEl = document.getElementById('noContactWrap');
+const noContactBtnEl = document.getElementById('noContactBtn');
+const noContactCountEl = document.getElementById('noContactCount');
+const noContactListEl = document.getElementById('noContactList');
+const settingsTableInput = document.getElementById('settingsPostesTable');
+const settingsColInput = document.getElementById('settingsPostesCol');
+
+async function refreshPostesSansContact(){
+  if (!RAW.length && !postesTable) return;
+  try {
+    const table = await grist.docApi.fetchTable(postesTable);
+    const labels = (table[postesCol] || []).map(v => norm(v).trim()).filter(Boolean);
+    const have = new Set(RAW.map(r => norm(r.Poste).trim()).filter(Boolean));
+    missingPostes = Array.from(new Set(labels)).filter(l => !have.has(l)).sort((a,b)=>a.localeCompare(b,'fr'));
+    renderNoContactIndicator(null);
+  } catch (e) {
+    // Table/colonne introuvable, ou accès pas encore accordé — on masque
+    // simplement l'indicateur plutôt que de faire planter le widget.
+    missingPostes = [];
+    renderNoContactIndicator(e);
+  }
+}
+
+function renderNoContactIndicator(error){
+  if (error || missingPostes.length === 0){
+    noContactWrapEl.style.display = 'none';
+    return;
+  }
+  noContactWrapEl.style.display = '';
+  noContactCountEl.textContent = missingPostes.length;
+  noContactListEl.innerHTML = missingPostes.map(p => `<div>${p}</div>`).join('');
+}
+
+noContactBtnEl.addEventListener('click', function(){
+  noContactListEl.style.display = (noContactListEl.style.display === 'none') ? '' : 'none';
+});
+
+document.getElementById('openSettingsBtn').addEventListener('click', function(){
+  const panel = document.getElementById('settingsPanel');
+  panel.style.display = (panel.style.display === 'none') ? '' : 'none';
+});
+
+document.getElementById('settingsSaveBtn').addEventListener('click', function(){
+  const t = settingsTableInput.value.trim() || DEFAULT_POSTES_TABLE;
+  const c = settingsColInput.value.trim() || DEFAULT_POSTES_COL;
+  postesTable = t;
+  postesCol = c;
+  grist.setOption('postesTable', t);
+  grist.setOption('postesCol', c);
+  refreshPostesSansContact();
 });
 
 function norm(v){
