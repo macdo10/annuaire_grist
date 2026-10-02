@@ -646,6 +646,7 @@ grist.ready({
     { name: "TelWhatsapp", title: "Tél WHATSAPP", optional: true },
     { name: "Mail",        title: "mail", optional: true },
     { name: "Groupements", title: "Groupements (G7, G20, UE…)", optional: true },
+    { name: "PosteRef",    title: "Réf. vers la table Postes (colonne Reference, si disponible — recommandé pour \"postes sans contact\")", optional: true },
   ]
 });
 
@@ -752,13 +753,54 @@ const noContactListEl = document.getElementById('noContactList');
 const settingsTableInput = document.getElementById('settingsPostesTable');
 const settingsColInput = document.getElementById('settingsPostesCol');
 
+// Normalisation "tolérante" pour comparer des libellés qui peuvent provenir
+// de deux formules différentes (une dans Conseillers_Presse, une dans
+// Postes) : espaces multiples, casse, accents et tirets ne doivent pas faire
+// manquer un rapprochement qui est en réalité le même poste.
+function normalizeLabel(s){
+  return norm(s)
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')  // retire les accents
+    .toLowerCase()
+    .replace(/[-–—_]/g, ' ')                           // tirets variés -> espace
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 async function refreshPostesSansContact(){
   if (!RAW.length && !postesTable) return;
   try {
     const table = await grist.docApi.fetchTable(postesTable);
-    const labels = (table[postesCol] || []).map(v => norm(v).trim()).filter(Boolean);
-    const have = new Set(RAW.map(r => norm(r.Poste).trim()).filter(Boolean));
-    missingPostes = Array.from(new Set(labels)).filter(l => !have.has(l)).sort((a,b)=>a.localeCompare(b,'fr'));
+    const ids = table.id || [];
+    const labelsRaw = table[postesCol] || [];
+
+    // Référence (PosteRef) mappée ET réellement renseignée sur au moins un
+    // contact → on matche par identifiant, fiable à 100% car indépendant du
+    // texte affiché. Sinon, repli sur un rapprochement de texte tolérant.
+    const haveRefs = RAW.some(r => r.PosteRef !== undefined && r.PosteRef !== null && r.PosteRef !== '');
+
+    let missingIdx;
+    if (haveRefs) {
+      const haveIds = new Set(
+        RAW.map(r => {
+          const v = r.PosteRef;
+          // Une colonne Reference peut arriver en brut (nombre) ou, selon le
+          // mapping, sous une autre forme — on prend le nombre si possible.
+          const n = (typeof v === 'object' && v !== null) ? v.rowId ?? v.id : v;
+          return Number(n);
+        }).filter(n => Number.isFinite(n) && n > 0)
+      );
+      missingIdx = ids.map((id, i) => haveIds.has(Number(id)) ? -1 : i).filter(i => i !== -1);
+    } else {
+      const have = new Set(RAW.map(r => normalizeLabel(r.Poste)).filter(Boolean));
+      missingIdx = labelsRaw.map((l, i) => have.has(normalizeLabel(l)) ? -1 : i).filter(i => i !== -1);
+    }
+
+    const seen = new Set();
+    missingPostes = missingIdx
+      .map(i => norm(labelsRaw[i]).trim())
+      .filter(l => l && !seen.has(normalizeLabel(l)) && seen.add(normalizeLabel(l)))
+      .sort((a,b)=>a.localeCompare(b,'fr'));
+
     renderNoContactIndicator(null);
   } catch (e) {
     // Table/colonne introuvable, ou accès pas encore accordé — on masque
